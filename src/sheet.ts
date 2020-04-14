@@ -4,6 +4,27 @@ const {
     GoogleSpreadsheetRow
 } = require('google-spreadsheet');
 
+export const requiredHeaderValues = [
+    'invitedby',
+    'userinvited',
+    'name',
+    'email',
+    'info',
+
+    'validated',
+    'votingput',
+
+    'timestart',
+    'pollid',
+
+    'vote.confirm',
+    'vote.accept',
+    'vote.decline',
+    'vote.neutral',
+    'vote.total',
+    'vote.result'
+];
+
 /*
     1) Spreadsheet ====(new proposals)==> Bot
     2) Spreadsheet <===(update voting)=== Bot
@@ -43,8 +64,9 @@ class RequestsOrderExecution {
         let promise = new PromiseWrapper();
         this.order.push(promise);
 
-        if (this.order.length === 1)
-            this.waitInterval().then(() => this.order.shift()!.resolve());
+        if (this.order.length === 1) {
+            this.next();
+        }
         
         return promise.promise;
     }
@@ -52,43 +74,27 @@ class RequestsOrderExecution {
     release() {
         if (this.order.length === 0)
             return;
-        this.waitInterval().then(() => this.order.shift()!.resolve());
+        this.next();
     }
 
     private waitInterval() : Promise<void> {
         let diff = (Date.now() - this.lastExecution);
         if (diff >= this.interval) {
-            this.lastExecution = Date.now();
             return Promise.resolve();
         } else {
-            return TimeoutPromise(this.interval - diff)
-                    .then(() => {
-                        this.lastExecution = Date.now();
-                    });
+            return TimeoutPromise(this.interval - diff);
         }
+    }
+    private next() {
+        this.waitInterval().then(() => {
+            if (this.order.length > 0) {
+                this.lastExecution = Date.now();
+                this.order.shift()!.resolve()
+            }
+        });
     }
 }
 
-export const requiredHeaderValues = [
-    'invitedby',
-    'userinvited',
-    'name',
-    'email',
-    'info',
-
-    'validated',
-    'votingput',
-
-    'timestart',
-    'messageid',
-
-    'vote.confirm',
-    'vote.accept',
-    'vote.decline',
-    'vote.neutral',
-    'vote.total',
-    'vote.result'
-];
 export const updateTimeout = 2000;
 export default class Spreadsheet {
     docLink: string;
@@ -154,8 +160,8 @@ export default class Spreadsheet {
     onNewProposal(callback: (arg: typeof GoogleSpreadsheetRow) => void) {
         this._onNewProposal = callback;
     }
-    getProposalByMessageId(messageId: string) {
-        return this.rows ? this.rows.find(row => row.messageid === messageId) : undefined;
+    getProposalByPollId(pollId: string) {
+        return this.rows ? this.rows.find(row => row.pollid === pollId) : undefined;
     }
 
     private async update(next: boolean, timeout: number) {
@@ -185,7 +191,7 @@ export default class Spreadsheet {
     }
 
     private isTrue(a : string) : boolean {
-        a = a.toLowerCase().trim();
+        a = (a || '').toLowerCase().trim();
         return a === 'true' || a === '1';
     }
 
