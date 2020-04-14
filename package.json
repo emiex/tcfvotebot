@@ -1,0 +1,39 @@
+{
+  "name": "tcf-bot",
+  "version": "0.0.1",
+  "description": "Telegram bot for voting handling in TCF.",
+  "scripts": {
+    "start": "ts-node --files src/",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/emiex/tonbot.git"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "TON",
+    "community",
+    "foundation",
+    "poll",
+    "vote",
+    "voting"
+  ],
+  "author": "TON Community Foundation (https://ton-foundation.org/)",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/emiex/tonbot/issues"
+  },
+  "homepage": "https://github.com/emiex/tonbot#readme",
+  "dependencies": {
+    "@types/colors": "^1.2.1",
+    "@types/node": "^13.11.1",
+    "@types/node-telegram-bot-api": "^0.40.2",
+    "colors": "^1.4.0",
+    "google-spreadsheet": "^3.0.10",
+    "node-telegram-bot-api": "^0.40.0",
+    "ts-node": "^8.8.2",
+    "typescript": "^3.8.3"
+  }
+}
