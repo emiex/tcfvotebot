@@ -16,17 +16,21 @@ export const requiredHeaderValues = [
 
     'timestart',
     'pollid',
+    'messageid1',
+    'messageid2',
 
     'vote.confirm',
     'vote.accept',
     'vote.decline',
     'vote.neutral',
     'vote.total',
-    'vote.result'
+    'vote.result',
+
+    'done'
 ];
 
 /*
-    1) Spreadsheet ====(new proposals)==> Bot
+    1) Spreadsheet  ===(new proposals)==> Bot
     2) Spreadsheet <===(update voting)=== Bot
 
     1) spreadsheet.onNewProposal(callback)
@@ -160,15 +164,31 @@ export default class Spreadsheet {
     onNewProposal(callback: (arg: typeof GoogleSpreadsheetRow) => void) {
         this._onNewProposal = callback;
     }
-    getProposalByPollId(pollId: string) {
-        return this.rows ? this.rows.find(row => row.pollid === pollId) : undefined;
+    private _onFirstLoad?: (arg: typeof GoogleSpreadsheetRow[]) => void;
+    onFirstLoad(callback: (arg: typeof GoogleSpreadsheetRow[]) => void) {
+        this._onFirstLoad = callback;
+    }
+    private _onEdit?: (arg: typeof GoogleSpreadsheetRow, arg2: typeof GoogleSpreadsheetRow) => void;
+    onEdit(callback: (arg: typeof GoogleSpreadsheetRow, arg2: typeof GoogleSpreadsheetRow) => void) {
+        this._onEdit = callback;
     }
 
+    getProposalByPollId(pollId: string | number) {
+        return this.rows ? this.rows.find(row => row.pollid == pollId) : undefined;
+    }
+
+    private firstLoad: boolean = true;
     private async update(next: boolean, timeout: number) {
         await this.order.reserve();
 
+        let prevRows = this.rows;
         this.rows = await this.sheet.getRows();
-        this.process(this.rows!);
+        if (this.firstLoad && this._onFirstLoad) {
+            this.firstLoad = false;
+            this._onFirstLoad(this.rows!);
+        }
+
+        this.process(this.rows!, prevRows);
 
         if (next)
             setTimeout(this.update.bind(this, next, timeout), timeout);
@@ -177,9 +197,34 @@ export default class Spreadsheet {
     }
 
     private rowsIgnored: number[];
-    private process(rows: typeof GoogleSpreadsheetRow[]) {
+    private process(rows: typeof GoogleSpreadsheetRow[], prevRows?: typeof GoogleSpreadsheetRow[]) {
+        if (prevRows) {
+            for (let row of rows) {
+                let same = null;
+                for (let pRow of prevRows) {
+                    if (row.rowNumber === pRow.rowNumber) {
+                        same = pRow;
+                        break;
+                    }
+                }
+
+                if (same == null)
+                    continue;
+
+                if (!this.areSame(row, same)) {
+                    let ignoreIndex;
+                    if ((ignoreIndex = this.rowsIgnored.indexOf(row.rowNumber)) >= 0)
+                        this.rowsIgnored.splice(ignoreIndex, 1);
+                    if (this._onEdit)
+                        this._onEdit(row, same);
+                }
+            } 
+        }
+
         for (let row of rows) {
-            if (this.isTrue(row.validated) && !this.isTrue(row.votingput) && !this.rowsIgnored.includes(row.rowNumber)) {
+            if ( this.isTrue(row.validated) && 
+                !this.isTrue(row.votingput) && 
+                !this.rowsIgnored.includes(row.rowNumber)) {
                 if (this._onNewProposal == null) {
                     console.error("New proposal found (" + row.name + "), but Spreadsheet object doesn't have a callback. Call onNewProposal with your callback.");
                 } else {
@@ -190,7 +235,14 @@ export default class Spreadsheet {
         }
     }
 
-    private isTrue(a : string) : boolean {
+    private areSame(a: typeof GoogleSpreadsheetRow, b: typeof GoogleSpreadsheetRow) : boolean {
+        for (let field of requiredHeaderValues)
+            if (a[field] !== b[field])
+                return false;
+        return true;
+    }
+
+    isTrue(a : string) : boolean {
         a = (a || '').toLowerCase().trim();
         return a === 'true' || a === '1';
     }

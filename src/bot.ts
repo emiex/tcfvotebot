@@ -3,7 +3,7 @@ import {bold} from 'colors';
 import TelegramBot from 'node-telegram-bot-api';
 import * as fs from 'fs';
 
-const escHTML = (str : string) => str.replace(/\</g, '&lt;').replace(/\>/g, '&gt;');
+export const escapeHTML = (str : string) => (str||'').replace(/\</g, '&lt;').replace(/\>/g, '&gt;');
 
 const pollOptionsLabels = {
     confirm: "Can confirm his/her identity",
@@ -60,33 +60,52 @@ export default class Bot {
             if (!this.pollUpdateListener)
                 throw new Error("Missing poll update listener!");
             if (!this.chat)
-                throw new Error("Bot.makePoll(): no chat_id is specified. Add bot and put a chat id in config.json");
+                throw new Error("bot.on('poll'): no chat_id is specified. Add bot and put a chat id in config.json");
             let total = await this.bot.getChatMembersCount(this.chat);
             this.pollUpdateListener(poll, total, pollOptionsLabels);
         });
     }
 
-    async makePoll(title: string, info: string, type: "newMember" | "general") : Promise<TelegramBot.Message> {
+    async makePoll(title: string, info: string, type: "newMember" | "general") : Promise<[TelegramBot.Message, TelegramBot.Message]> {
         if (this.chat === undefined)
             throw new Error('Bot.makePoll(): no chat_id is specified. Add bot and put a chat id in config.json');
-        let messageIntro = await this.bot.sendMessage(this.chat, `<b>${escHTML(title)}</b>\n${escHTML(info)}`, {parse_mode: "HTML"});
+        let messageIntro = await this.bot.sendMessage(this.chat, info, {parse_mode: "HTML"});
         // @ts-ignore
         let messagePoll = await this.bot.sendPoll(this.chat, title, pollOptions[type].map(name => pollOptionsLabels[name]));
-        return messagePoll;
+        return [messageIntro, messagePoll];
     }
 
+    async editMessage(messageid: number, content: string) {
+        this.bot.editMessageText(content, {
+            parse_mode: "HTML",
+            message_id: messageid,
+            chat_id: this.chat
+        });
+    }
+
+    async stopPoll(messageid: number, reason: string) {
+        if (this.chat === undefined)
+            throw new Error('Bot.stopPoll(): no chat_id is specified. Add bot and put a chat id in config.json');
+
+        // @ts-ignore
+        await this.bot.stopPoll(this.chat, messageid);
+        await this.bot.sendMessage(this.chat, reason, {
+            reply_to_message_id: messageid,
+            parse_mode: "HTML"
+        });
+    }
     
     private pollUpdateListener: PollUpdateListener | null = null;
     onPollUpdate(listener: PollUpdateListener) {
         this.pollUpdateListener = listener;
     }
 
-    private reportToAdmin(message : string) {
+    report(message : string) {
         if (!this.admin)
             return console.error(message);
         let admin = this.cache.findByUsername(this.admin);
         if (!admin) {
-            console.error('Bot.reportToAdmin(): failed to find admin by username (@' + this.admin + '). Please, ask admin to contact bot directly first.');
+            console.error('Bot.reportToAdmin(): failed to find admin by username (' + this.admin + '). Please, ask admin to contact bot directly first.');
             console.error(message);
             return;
         }

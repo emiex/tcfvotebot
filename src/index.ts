@@ -1,28 +1,69 @@
-import {readJSONFile} from './utils';
+import {readJSONFile, timeoutString, now, telegramUsername} from './utils';
 import Spreadsheet from './sheet';
-import Bot from './bot';
+import Bot, {escapeHTML} from './bot';
 
 async function main() {
     const config = await readJSONFile('config.json');
     const sheetCredentials = await readJSONFile(config.sheet.credentials || 'credentials.json');
-    
+    const pollTimeout = config.pollTimeout || 60 // 1 minute;
+
     let spreadsheet = await Spreadsheet.getInstance(config.sheet.id, config.sheet.title, sheetCredentials);
     let bot = new Bot(config.bot.token, config.bot.cache, config.bot.username, config.bot.chat, config.bot.admin);
 
-    spreadsheet.onNewProposal(async (data) => {
-        let pollMessage = await bot.makePoll(data.name, data.info, 'newMember');
-        data.votingput = 'TRUE';
-        data.pollid = pollMessage.poll!.id;
-        data.timestart = pollMessage.date;
-        spreadsheet.saveRow(data);
+    spreadsheet.onFirstLoad(async (rows) => {
+        rows
+            .filter(row => !spreadsheet.isTrue(row.done) && spreadsheet.isTrue(row.votingput))
+            .forEach(row => {
+                let timestart = parseInt(row.timestart);
+                if (isNaN(timestart))
+                    return console.error('Row #' + row.rowNumber + ' has NaN timestart!');
+        
+                let closePollBind = closePoll.bind(null, row.pollid);
+                if (now() > timestart + pollTimeout)
+                    closePollBind();
+                else 
+                    setTimeout(closePollBind, (timestart + pollTimeout - now()) * 1000);
+            });
+    });
+    
+    spreadsheet.onEdit(async (row, prevrow) => {
+        if (!spreadsheet.isTrue(row.votingput) || spreadsheet.isTrue(row.done))
+            return;
+        if (row.info === prevrow.info && row.name === prevrow.name && 
+            row.invitedby === prevrow.invitedby && row.userinvited === prevrow.userinvited &&
+            row.email === prevrow.email)
+            return;
+        
+        bot.editMessage(row.messageid1, makeInfoText(row));
+    });
+
+    spreadsheet.onNewProposal(async (row) => {
+        if (row.name.length === 0 || row.invitedby.length === 0)
+            return bot.report('<a href="'+rowLink(row)+'">Row #' + row.rowNumber + '</a> has no name or invitedby values!');
+        
+        let messages = await bot.makePoll(row.name, makeInfoText(row), 'newMember');
+
+        row.votingput = 'TRUE';
+        row.pollid = messages[1].poll!.id;
+        row.messageid1 = messages[0].message_id;
+        row.messageid2 = messages[1].message_id;
+        row.timestart = messages[1].date;
+        row.done = 'FALSE';
+        
+        await spreadsheet.saveRow(row);
+
+        setTimeout(
+            closePoll.bind(null, row.pollid),
+            pollTimeout * 1000
+        );
     });
 
     bot.onPollUpdate(async (poll, total, labels) => {
         let row = spreadsheet.getProposalByPollId(poll.id);
-        if (!row) {
-            console.error("Failed to find proper purpose for this vote ID.");
-            return;
-        }
+        if (!row)
+            return console.error("Failed to find proper purpose for this vote ID.");
+        if (spreadsheet.isTrue(row.done))
+            return console.error('Received poll update, when proposal is done. (WTF???)');
         
         for (let option of poll.options) {
             let key = null;
@@ -40,11 +81,89 @@ async function main() {
             row['vote.' + key] = option.voter_count;
         }
         row['vote.total'] = total;
-        let num = row.rowNumber;
-        row['vote.result'] = `=SuperMajorityVoting_newmember(H${num};I${num};J${num};K${num};L${num})`;
+        calcResult(row, false);
 
-        spreadsheet.saveRow(row);
+        await spreadsheet.saveRow(row);
+
+        if (row['vote.result'] === 'FASTACCEPT') {
+            closePoll(row.pollid, false);
+        }
     });
 
+    async function closePoll(pollid: string, calculateResult: boolean = true) {
+        // if (typeof pollid === 'string')
+        //     pollid = parseInt(pollid);
+        let row = spreadsheet.getProposalByPollId(pollid);
+        if (row === undefined)
+            return console.error('closePoll(): didn\'t find a row by poll id (' + pollid + ')');
+
+        if (spreadsheet.isTrue(row.done))
+            return;
+
+        if (calculateResult) {
+            row.done = 'TRUE';
+            calcResult(row, true);
+            await spreadsheet.saveRow(row);
+            row = spreadsheet.getProposalByPollId(pollid);
+        }
+
+        let admin = config.bot.admin ? telegramUsername(escapeHTML(config.bot.admin)) : '',
+            invitedby = row.invitedby.length > 0 ? telegramUsername(escapeHTML(row.invitedby)) : '';
+        if (admin === invitedby)
+            invitedby = '';
+
+        let result = row['vote.result'], reason;
+        if (result === 'FASTACCEPT') {
+            reason = 'Voting is resolved fast: result is positive, new member should be accepted. ' + admin + ' ' + invitedby;
+        } else if (result === 'WAIT_ACCEPT') {
+            reason = 'After ' + timeoutString(pollTimeout) + ' of voting, result is positive, new member should be accepted. ' + admin + ' ' + invitedby;
+        } else if (result === 'WAIT_DECLINE' || result.length == 0) {
+            result = 'WAIT_DECLINE';
+            reason = 'After ' + timeoutString(pollTimeout) + ' of voting, result is negative, proposal is dropped. ' + admin;
+        } else {
+            console.error('Unknown voting result: ' + result + ' (row #' + row.rowNumber + ')');
+            reason = 'Unknown result. (Function in spreadsheet returned unknown value!) ' + admin;
+        }
+
+        let debug = '(<code>' + result + '</code>: ' + rowLinkHTML(row) + ')';
+
+        await bot.stopPoll(row.messageid2, reason + "\n" + debug);
+
+        if (!calculateResult) {
+            row.done = 'TRUE';
+            await spreadsheet.saveRow(row);
+        }
+    }
+
+    function calcResult(row : any, timepassed: boolean) {
+        let num = row.rowNumber;
+        row['vote.result'] = config.sheet.formula.replace(/№/g, num + '').replace(/timepassed/g, timepassed ? "true" : "false");
+    }
+
+    function rowLink(row: any) : string | undefined {
+        let rowNum = row.rowNumber;
+        return config.sheet.link ? config.sheet.link + '&range=' + rowNum + ':' + rowNum : undefined;
+    }
+    function rowLinkHTML(row: any) : string | undefined {
+        return '<a href="'+rowLink(row)+'">Row #' + row.rowNumber + '</a>';
+    }
+    function makeInfoText(row : any) : string {
+        let info = ['\n' + (escapeHTML(row.info) || '')];
+        if (row.invitedby.length > 0)
+            info.unshift('Invited by: ' + telegramUsername(escapeHTML(row.invitedby)));
+        if (row.userinvited.length > 0)
+            info.unshift('Proposal inviting ' + telegramUsername(escapeHTML(row.userinvited)) + (row.email ? ' (' + escapeHTML(row.email) + ')' : ''));
+        return '<b>' + escapeHTML(row.name) + '</b>\n' + info.join('\n') + '\n<a href="' + rowLink(row) + '">Link to the proposal in spreadsheet.</a>';
+    }
+
+
+    process.on('unhandledRejection', (error: any) => {
+        if (error) {
+            try {
+                bot.report(error.stack || error.toString());
+            } catch (e) { throw e; }
+        }
+    });
 }
+
 main();

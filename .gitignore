@@ -2,6 +2,7 @@ node_modules/
 config.json
 credentials.json
 cache.json
+botcache.json
 
 .DS_Store
 **/.DS_Store
