@@ -1,3 +1,5 @@
+import Logger from "./logger";
+
 const {
     GoogleSpreadsheet, 
     GoogleSpreadsheetWorksheet, 
@@ -110,6 +112,8 @@ export default class Spreadsheet {
     sheet: typeof GoogleSpreadsheetWorksheet;
     rows?: typeof GoogleSpreadsheetRow[];
 
+    logger?: Logger;
+
     private order: RequestsOrderExecution;
 
     private constructor(docLink: string, sheetTitle: string, credentials: any) {
@@ -181,18 +185,27 @@ export default class Spreadsheet {
     private async update(next: boolean, timeout: number) {
         await this.order.reserve();
 
-        let prevRows = this.rows;
-        this.rows = await this.sheet.getRows();
-        if (this.firstLoad && this._onFirstLoad) {
-            this.firstLoad = false;
-            this._onFirstLoad(this.rows!);
-        }
+        console.log(Date.now() + ' update'.grey);
 
-        this.process(this.rows!, prevRows);
+        try {
+            let prevRows = this.rows;
+            this.rows = await this.sheet.getRows();
+
+            if (this.firstLoad && this._onFirstLoad) {
+                this.firstLoad = false;
+                this._onFirstLoad(this.rows!);
+            }
+
+            this.process(this.rows!, prevRows);
+
+
+        } catch (e) {
+            if (this.logger)
+                this.logger.err('Sheet.update(): ', e);
+        }
 
         if (next)
             setTimeout(this.update.bind(this, next, timeout), timeout);
-
         this.order.release();
     }
 

@@ -1,30 +1,40 @@
 import {readJSONFile, timeoutString, now, telegramUsername} from './utils';
 import Spreadsheet from './sheet';
 import Bot, {escapeHTML} from './bot';
+import Logger from './logger';
 
 async function main() {
     const config = await readJSONFile('config.json');
     const sheetCredentials = await readJSONFile(config.sheet.credentials || 'credentials.json');
     const pollTimeout = config.pollTimeout || 60 // 1 minute;
 
+    const logger = new Logger();
+
     let spreadsheet = await Spreadsheet.getInstance(config.sheet.id, config.sheet.title, sheetCredentials);
     let bot = new Bot(config.bot.token, config.bot.cache, config.bot.username, config.bot.chat, config.bot.admin);
 
+    logger.connectBot(bot);
+
     spreadsheet.onFirstLoad(async (rows) => {
-        rows
-            .filter(row => !spreadsheet.isTrue(row.done) && spreadsheet.isTrue(row.votingput))
+        rows.filter(row => !spreadsheet.isTrue(row.done) && spreadsheet.isTrue(row.votingput))
             .forEach(row => {
                 let timestart = parseInt(row.timestart);
                 if (isNaN(timestart))
                     return console.error('Row #' + row.rowNumber + ' has NaN timestart!');
         
                 let closePollBind = closePoll.bind(null, row.pollid);
-                if (now() > timestart + pollTimeout)
+                let timeout = pollTimeout - (now() - timestart);
+                if (timeout < 0) {
+                    logger.log("Server startup: found unfinished poll, that should be closed.");
                     closePollBind();
-                else 
-                    setTimeout(closePollBind, (timestart + pollTimeout - now()) * 1000);
+                } else {
+                    logger.log("Server startup: set timeout to finish poll (" + rowLinkHTML(row) + "), " + timeoutString(timeout));
+                    setTimeout(closePollBind, (timeout) * 1000);
+                }
             });
     });
+
+    
     
     spreadsheet.onEdit(async (row, prevrow) => {
         if (!spreadsheet.isTrue(row.votingput) || spreadsheet.isTrue(row.done))
@@ -33,13 +43,14 @@ async function main() {
             row.invitedby === prevrow.invitedby && row.userinvited === prevrow.userinvited &&
             row.email === prevrow.email)
             return;
-        
+
+        logger.log("Noticed row edit on live poll: " + rowLinkHTML(row));
         bot.editMessage(row.messageid1, makeInfoText(row));
     });
 
     spreadsheet.onNewProposal(async (row) => {
         if (row.name.length === 0 || row.invitedby.length === 0)
-            return bot.report('<a href="'+rowLink(row)+'">Row #' + row.rowNumber + '</a> has no name or invitedby values!');
+            return logger.err(rowLinkHTML(row) + ' has no name or invitedby values!');
         
         let messages = await bot.makePoll(row.name, makeInfoText(row), 'newMember');
 
@@ -51,6 +62,7 @@ async function main() {
         row.done = 'FALSE';
         
         await spreadsheet.saveRow(row);
+        logger.log('Opened new voting for ' + rowLinkHTML(row) + '.');
 
         setTimeout(
             closePoll.bind(null, row.pollid),
@@ -59,12 +71,16 @@ async function main() {
     });
 
     bot.onPollUpdate(async (poll, total, labels) => {
+        if (poll.is_closed)
+            return;
+
         let row = spreadsheet.getProposalByPollId(poll.id);
         if (!row)
-            return console.error("Failed to find proper purpose for this vote ID.");
+            return logger.err("Failed to find proper purpose for this vote ID.");
         if (spreadsheet.isTrue(row.done))
-            return console.error('Received poll update, when proposal is done. (WTF???)');
-        
+            return logger.err('Received poll update, when proposal is done. (WTF???)');
+
+        let res : any = {};
         for (let option of poll.options) {
             let key = null;
             for (let labelKey in labels) {
@@ -74,14 +90,17 @@ async function main() {
                 }
             }
             if (key === null) {
-                console.error('Failed to find proper action for poll option label `'+key+'`');
+                logger.err('Failed to find proper action for poll option label `'+key+'`');
                 continue;
             }
 
             row['vote.' + key] = option.voter_count;
+            res[key] = option.voter_count;
         }
         row['vote.total'] = total;
         calcResult(row, false);
+
+        logger.log('Poll updated (' + Object.keys(res).map(key => key + ': ' + res[key]).join(', ') + '): ' + rowLinkHTML(row));
 
         await spreadsheet.saveRow(row);
 
@@ -95,7 +114,7 @@ async function main() {
         //     pollid = parseInt(pollid);
         let row = spreadsheet.getProposalByPollId(pollid);
         if (row === undefined)
-            return console.error('closePoll(): didn\'t find a row by poll id (' + pollid + ')');
+            return logger.err('closePoll(): didn\'t find a row by poll id (' + pollid + ')');
 
         if (spreadsheet.isTrue(row.done))
             return;
@@ -128,6 +147,7 @@ async function main() {
         let debug = '(<code>' + result + '</code>: ' + rowLinkHTML(row) + ')';
 
         await bot.stopPoll(row.messageid2, reason + "\n" + debug);
+        logger.log('Stopped poll: ' + rowLinkHTML(row) + '. Result: ' + result);
 
         if (!calculateResult) {
             row.done = 'TRUE';
@@ -145,7 +165,7 @@ async function main() {
         return config.sheet.link ? config.sheet.link + '&range=' + rowNum + ':' + rowNum : undefined;
     }
     function rowLinkHTML(row: any) : string | undefined {
-        return '<a href="'+rowLink(row)+'">Row #' + row.rowNumber + '</a>';
+        return '<a href="'+rowLink(row)+'">Row #' + row.rowNumber + ' ' + (row.name ? '(' + row.name + ')' : '') + '</a>';
     }
     function makeInfoText(row : any) : string {
         let info = ['\n' + (escapeHTML(row.info) || '')];
@@ -160,7 +180,7 @@ async function main() {
     process.on('unhandledRejection', (error: any) => {
         if (error) {
             try {
-                bot.report(error.stack || error.toString());
+                logger.err('[unhandledRejection]', error);
             } catch (e) { throw e; }
         }
     });

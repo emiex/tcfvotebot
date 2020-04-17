@@ -100,17 +100,18 @@ export default class Bot {
         this.pollUpdateListener = listener;
     }
 
-    report(message : string) {
+    report(message : string, silent: boolean = false) {
         if (!this.admin)
             return console.error(message);
         let admin = this.cache.findByUsername(this.admin);
         if (!admin) {
-            console.error('Bot.reportToAdmin(): failed to find admin by username (' + this.admin + '). Please, ask admin to contact bot directly first.');
+            console.error('Bot.report(): failed to find admin by username (' + this.admin + '). Please, ask admin to contact bot directly first.');
             console.error(message);
             return;
         }
         this.bot.sendMessage(admin.id, message, {
-            parse_mode: "HTML"
+            parse_mode: "HTML",
+            disable_notification: silent
         });
     }
 }
