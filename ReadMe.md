@@ -7,7 +7,7 @@ Using a Google Spreadsheets as a database for votings data, bot finds new propos
 ### Setup
 
 ```bash
-git clone https://github.com/emiex/tonbot
+git clone https://github.com/emiex/tcfvotebot
 cd tonbot
 npm install
 # create config.json
