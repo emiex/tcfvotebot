@@ -25,7 +25,7 @@ export default class Logger {
     private report(msg: string, silent : boolean = false) {
         console.log(msg);
         if (this.bot)
-            this.bot.report(msg);
+            this.bot.report(msg, silent);
     }
 
     private toString(args: any[]) {

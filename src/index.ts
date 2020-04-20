@@ -187,3 +187,6 @@ async function main() {
 }
 
 main();
+
+// a very stupid fix to shutdown server each hour. I will fix that, I swear!
+setTimeout(() => process.exit(20), 1000 * 60 * 60);

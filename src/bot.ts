@@ -71,7 +71,7 @@ export default class Bot {
             throw new Error('Bot.makePoll(): no chat_id is specified. Add bot and put a chat id in config.json');
         let messageIntro = await this.bot.sendMessage(this.chat, info, {parse_mode: "HTML"});
         // @ts-ignore
-        let messagePoll = await this.bot.sendPoll(this.chat, title, pollOptions[type].map(name => pollOptionsLabels[name]));
+        let messagePoll = await this.bot.sendPoll(this.chat, title, pollOptions[type].map(name => pollOptionsLabels[name]), {is_anonymous: false});
         return [messageIntro, messagePoll];
     }
 
