@@ -136,18 +136,18 @@ async function main() {
 
         let result = row['vote.result'], reason;
         if (result === 'FASTACCEPT') {
-            reason = 'Voting is resolved instantly with a positive result, new member is accepted. ' + admin + ' ' + invitedby;
+            reason = 'Voting is resolved instantly with a positive result, new member is <b>Accepted</b>.';
         } else if (result === 'WAIT_ACCEPT') {
-            reason = 'After ' + timeoutString(pollTimeout) + ' from the voting, new member is accepted. ' + admin + ' ' + invitedby;
+            reason = 'After ' + timeoutString(pollTimeout) + ' from the voting, new member is <b>Accepted</b>.';
         } else if (result === 'WAIT_DECLINE' || result.length == 0) {
             result = 'WAIT_DECLINE';
-            reason = 'After ' + timeoutString(pollTimeout) + ' from the voting, new member is rejected. ' + admin;
+            reason = 'After ' + timeoutString(pollTimeout) + ' from the voting, new member is <b>Rejected</b>.';
         } else {
             console.error('Unknown voting result: ' + result + ' (row #' + row.rowNumber + ')');
             reason = 'Unknown result. (Function in spreadsheet returned unknown value!) ' + admin;
         }
 
-        let debug = '<i>' + rowLinkHTML(row) + ' <b>' + votestatus[result] + '</b></i>';
+        let debug = '<i>' + rowLinkHTML(row) + ' ' + admin + ' ' + invitedby + "</i>";
 
         await bot.stopPoll(row.messageid2, reason + "\n" + debug);
         logger.log('Stopped poll: ' + rowLinkHTML(row) + '. Result: ' + result);
@@ -171,7 +171,7 @@ async function main() {
         return '<a href="'+rowLink(row)+'">Row #' + row.rowNumber + ' ' + (row.name ? '(' + row.name + ')' : '') + '</a>';
     }
     function makeInfoText(row : any) : string {
-        let votetitle = '<b>' + escapeHTML(row.name) + '</b>' + (row.userinvited.length > 0 ? "(" + row.userinvited + ")" : "");
+        let votetitle = '<b>' + escapeHTML(row.name) + '</b> ' + (row.userinvited.length > 0 ? "(" + row.userinvited + ")" : "");
         let info = votetitle + "\n" + escapeHTML(row.info);
         return info + '\n\n<i><a href="' + rowLink(row) + '">Link to the spreadsheet</a>' + (row.invitedby.length > 0 ? " (Invited by " + telegramUsername(escapeHTML(row.invitedby)) + ")" : "") + '</i>';
     }
