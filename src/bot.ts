@@ -33,7 +33,6 @@ export default class Bot {
         this.username = username;
         this.chat = chat;
         this.admin = admin;
-
         this.cache = new BotCache(cachePath);
         this.bot = new TelegramBot(this.token, {polling: true});
 

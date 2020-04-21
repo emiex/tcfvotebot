@@ -15,11 +15,11 @@ export const timeoutString = (timeout : number) : string => {
 
     let res = [];
     if (hours > 0)
-        res.push(hours, 'hours');
+    res.push(hours, (hours === 1 ? 'hour' : 'hours'));
     if (minutes > 0)
-        res.push(minutes, 'minutes');
+        res.push(minutes, (minutes === 1 ? 'minute' : 'minutes'));
     if (seconds > 0)
-        res.push(seconds, 'seconds');
+        res.push(seconds, (seconds === 1 ? 'second' : 'seconds'));
     if (res.length == 0)
         res.push('a moment');
     return res.join(' ');

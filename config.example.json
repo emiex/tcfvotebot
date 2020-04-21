@@ -1,0 +1,16 @@
+{
+    "sheet": {
+        "credentials": "",
+        "id": "",
+        "title": "",
+        "link": "",
+        "formula": ""
+    },
+    "bot": {
+        "cache": "",
+        "token": "",
+        "username": "",
+        "chat": 0,
+        "admin": ""
+    }
+}

@@ -7,11 +7,15 @@ async function main() {
     const config = await readJSONFile('config.json');
     const sheetCredentials = await readJSONFile(config.sheet.credentials || 'credentials.json');
     const pollTimeout = config.pollTimeout || 60 // 1 minute;
-
     const logger = new Logger();
-
     let spreadsheet = await Spreadsheet.getInstance(config.sheet.id, config.sheet.title, sheetCredentials);
     let bot = new Bot(config.bot.token, config.bot.cache, config.bot.username, config.bot.chat, config.bot.admin);
+
+    const votestatus:any = {
+        "FASTACCEPT": "Accepting",
+        "WAIT_ACCEPT": "Accepting",
+        "WAIT_DECLINE": "Declining",
+    }
 
     logger.connectBot(bot);
 
@@ -53,7 +57,6 @@ async function main() {
             return logger.err(rowLinkHTML(row) + ' has no name or invitedby values!');
         
         let messages = await bot.makePoll(row.name, makeInfoText(row), 'newMember');
-
         row.votingput = 'TRUE';
         row.pollid = messages[1].poll!.id;
         row.messageid1 = messages[0].message_id;
@@ -133,18 +136,18 @@ async function main() {
 
         let result = row['vote.result'], reason;
         if (result === 'FASTACCEPT') {
-            reason = 'Voting is resolved fast: result is positive, new member should be accepted. ' + admin + ' ' + invitedby;
+            reason = 'Voting is resolved instantly with a positive result, new member is accepted. ' + admin + ' ' + invitedby;
         } else if (result === 'WAIT_ACCEPT') {
-            reason = 'After ' + timeoutString(pollTimeout) + ' of voting, result is positive, new member should be accepted. ' + admin + ' ' + invitedby;
+            reason = 'After ' + timeoutString(pollTimeout) + ' from the voting, new member is accepted. ' + admin + ' ' + invitedby;
         } else if (result === 'WAIT_DECLINE' || result.length == 0) {
             result = 'WAIT_DECLINE';
-            reason = 'After ' + timeoutString(pollTimeout) + ' of voting, result is negative, proposal is dropped. ' + admin;
+            reason = 'After ' + timeoutString(pollTimeout) + ' from the voting, new member is rejected. ' + admin;
         } else {
             console.error('Unknown voting result: ' + result + ' (row #' + row.rowNumber + ')');
             reason = 'Unknown result. (Function in spreadsheet returned unknown value!) ' + admin;
         }
 
-        let debug = '(<code>' + result + '</code>: ' + rowLinkHTML(row) + ')';
+        let debug = '<i>' + rowLinkHTML(row) + ' <b>' + votestatus[result] + '</b></i>';
 
         await bot.stopPoll(row.messageid2, reason + "\n" + debug);
         logger.log('Stopped poll: ' + rowLinkHTML(row) + '. Result: ' + result);
@@ -159,7 +162,7 @@ async function main() {
         let num = row.rowNumber;
         row['vote.result'] = config.sheet.formula.replace(/№/g, num + '').replace(/timepassed/g, timepassed ? "true" : "false");
     }
-
+ 
     function rowLink(row: any) : string | undefined {
         let rowNum = row.rowNumber;
         return config.sheet.link ? config.sheet.link + '&range=' + rowNum + ':' + rowNum : undefined;
@@ -168,12 +171,9 @@ async function main() {
         return '<a href="'+rowLink(row)+'">Row #' + row.rowNumber + ' ' + (row.name ? '(' + row.name + ')' : '') + '</a>';
     }
     function makeInfoText(row : any) : string {
-        let info = ['\n' + (escapeHTML(row.info) || '')];
-        if (row.invitedby.length > 0)
-            info.unshift('Invited by: ' + telegramUsername(escapeHTML(row.invitedby)));
-        if (row.userinvited.length > 0)
-            info.unshift('Proposal inviting ' + telegramUsername(escapeHTML(row.userinvited)) + (row.email ? ' (' + escapeHTML(row.email) + ')' : ''));
-        return '<b>' + escapeHTML(row.name) + '</b>\n' + info.join('\n') + '\n<a href="' + rowLink(row) + '">Link to the proposal in spreadsheet.</a>';
+        let votetitle = '<b>' + escapeHTML(row.name) + '</b>' + (row.userinvited.length > 0 ? "(" + row.userinvited + ")" : "");
+        let info = votetitle + "\n" + escapeHTML(row.info);
+        return info + '\n\n<i><a href="' + rowLink(row) + '">Link to the spreadsheet</a>' + (row.invitedby.length > 0 ? " (Invited by " + telegramUsername(escapeHTML(row.invitedby)) + ")" : "") + '</i>';
     }
 
 
